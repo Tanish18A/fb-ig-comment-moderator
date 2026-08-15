@@ -1,0 +1,541 @@
+{
+  "name": "FB/IG Comment Moderator (LLM based) - v2",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "meta-comments-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b556754e-2d79-4455-bd75-d109823f5b1d",
+      "name": "Webhook - Meta Verify (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        3024
+      ],
+      "webhookId": "meta-comments-verify"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1a1b111-0002-4a11-8a11-000000000002",
+              "leftValue": "={{$json.query['hub.verify_token']}}",
+              "rightValue": "={{$env.META_VERIFY_TOKEN}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ca91db45-a0c3-4b40-8490-aa66a51da661",
+      "name": "IF - Verify Token Match?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        3024
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{$json.query['hub.challenge']}}",
+        "options": {}
+      },
+      "id": "fbe8438c-3eec-4c82-9a21-d2ae6f4e2614",
+      "name": "Respond - Challenge OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2144,
+        2928
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Forbidden",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "fbfdad1e-c7da-4fc0-bc29-53d26003eb69",
+      "name": "Respond - Forbidden",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2144,
+        3120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "EVENT_RECEIVED",
+        "options": {}
+      },
+      "id": "c76fde45-467a-4633-a857-a4cc66893031",
+      "name": "Respond - Event Received (Immediate 200)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1920,
+        3552
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "b1a1b111-0008-4a11-8a11-000000000008",
+              "leftValue": "={{$json.reply}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bf2251f1-0b81-41a4-812f-e0c002516e6a",
+      "name": "IF - Has Reply Text?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3168,
+        3840
+      ]
+    },
+    {
+      "parameters": {
+        "httpRequestMethod": "POST",
+        "graphApiVersion": "v19.0",
+        "node": "={{$json.comment_id}}",
+        "edge": "comments",
+        "options": {
+          "queryParameters": {
+            "parameter": [
+              {
+                "name": "message",
+                "value": "={{$json.reply}}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "96a2b642-dcca-4e92-9abb-76fc5653f018",
+      "name": "Reply to Comment (Facebook Graph API)",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [
+        3392,
+        3744
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ad8adc7c-6efc-4fdf-95e1-db63737e1f04",
+      "name": "No Action (Empty Reply)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3392,
+        3936
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meta-comments-webhook",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "417af911-2e5e-48aa-9b48-e6dd17076926",
+      "name": "Webhook - Meta Events (POST)1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        3648
+      ],
+      "webhookId": "meta-comments-event"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Signature verify: Meta ke raw bytes pe HMAC hona chahiye, JSON.stringify(parsed body) pe nahi.\n// Isliye webhook node me \"Raw Body\" option enabled hai aur raw bytes yahan binary se nikal rahe hain.\nconst crypto = require('crypto');\nconst item = $input.first();\n\nconst rawBodyBase64 = item.binary?.data?.data;\nif (!rawBodyBase64) {\n  throw new Error('Raw body not found - \"Raw Body\" option webhook node me enable karo');\n}\nconst rawBodyStr = Buffer.from(rawBodyBase64, 'base64').toString('utf8');\n\nconst signature = item.json.headers['x-hub-signature-256'] || '';\nconst appSecret = $env.META_APP_SECRET;\nif (!appSecret) {\n  throw new Error('META_APP_SECRET environment variable set nahi hai (n8n settings > environment variables)');\n}\n\nconst expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBodyStr).digest('hex');\n\nconst sigBuf = Buffer.from(signature);\nconst expBuf = Buffer.from(expected);\nconst valid = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);\n\nif (!valid) {\n  throw new Error('Invalid webhook signature - request rejected');\n}\n\nconst body = JSON.parse(rawBodyStr);\nreturn [{ json: { body } }];"
+      },
+      "id": "0d522f47-5668-47ba-b58d-2cdc93ad9639",
+      "name": "Verify Webhook Signature1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        3744
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a comment moderation assistant for a business Instagram/Facebook page. The comment may be in English, Hindi, or Hinglish (romanized Hindi). Classify the following comment strictly as one of: ABUSIVE, SPAM, or GENUINE.\n\nABUSIVE = contains gaali/abuse/hate/threats in any language or script.\nSPAM = promo links, bot-like, irrelevant, scam, repeated characters.\nGENUINE = a normal, on-topic comment/question.\n\nIf GENUINE, also write a short, friendly, brand-appropriate reply in the SAME language/tone as the comment.\nIf ABUSIVE or SPAM, reply must be an empty string.\n\nRespond ONLY in this exact JSON format, no extra text, no markdown fences:\n{\"classification\": \"ABUSIVE|SPAM|GENUINE\", \"reply\": \"reply text or empty string\"}\n\nComment: {{$json.message}}"
+      },
+      "id": "d6fcd300-2f61-4c4d-8a38-43b912a55ff0",
+      "name": "Basic LLM Chain - Classify Comment1",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        2368,
+        3744
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = ($input.first().json.text || $input.first().json.output || '').toString();\nlet parsed;\ntry {\n  const cleaned = raw.replace(/```json|```/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  // Fail-safe: agar model ka output parse na ho paye, SPAM treat karo (delete honi chahiye, auto-reply nahi)\n  parsed = { classification: 'SPAM', reply: '' };\n}\n\nlet classification = (parsed.classification || 'SPAM').toString().trim().toUpperCase();\nif (!['ABUSIVE', 'SPAM', 'GENUINE'].includes(classification)) {\n  classification = 'SPAM';\n}\n\nconst original = $('Parse Comment Payload1').first().json;\nreturn [{\n  json: {\n    ...original,\n    classification,\n    reply: (parsed.reply || '').toString().trim()\n  }\n}];"
+      },
+      "id": "8701b947-543a-4ec0-8b18-cd3f6603bc11",
+      "name": "Extract Classification1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        3744
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.classification}}",
+                    "rightValue": "ABUSIVE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "ec0a8336-343f-4d4d-aab5-d8a1911ad9ce"
+                  }
+                ],
+                "combinator": "or"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.classification}}",
+                    "rightValue": "SPAM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "d992ca03-61e4-4b6e-8d66-3b8afaa2c433"
+                  }
+                ],
+                "combinator": "or"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.classification}}",
+                    "rightValue": "GENUINE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "e893fd09-d4e6-4c34-a4f3-19b45eabfb00"
+                  }
+                ],
+                "combinator": "or"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "563656d3-5183-42f6-aece-8ef289c3d40a",
+      "name": "Delete or Reply?1",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2944,
+        3728
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## I'm a note \nREMAIN\nWoking on sticker/photo and Rates of commets #Y Comments in X time\n\nwebhook varified in meta webhook ig webhook (meta events)",
+        "height": 496,
+        "width": 832
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2176,
+        3408
+      ],
+      "id": "d604ca58-6ac8-4dc0-9dea-3910339fb8ca",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        2448,
+        3968
+      ],
+      "id": "3418d7eb-fa66-49d6-89fe-18f0b89445ce",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "urQDggKM6drHQvPl",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nlet comments = [];\n\nfor (const entry of body.entry || []) {\n  for (const change of entry.changes || []) {\n    const value = change.value || {};\n    if (change.field === 'feed' && value.item === 'comment') {\n      comments.push({\n        platform: 'facebook',\n        comment_id: value.comment_id,\n        post_id: value.post_id,\n        message: value.message,\n        from: value.from ? value.from.name : null\n      });\n    }\n    if (change.field === 'comments') {\n      comments.push({\n        platform: 'instagram',\n        comment_id: value.id,\n        post_id: value.media ? value.media.id : null,\n        message: value.text,\n        from: value.from ? value.from.username : null\n      });\n    }\n  }\n}\n\n// Agar message hi nahi hai (empty comment / sticker / photo comment) to skip\nreturn comments.filter(c => c.comment_id && c.message).map(c => ({ json: c }));"
+      },
+      "id": "746b67ba-71f3-4db9-8130-fa678e8edff2",
+      "name": "Parse Comment Payload1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        3744
+      ]
+    },
+    {
+      "parameters": {
+        "httpRequestMethod": "DELETE",
+        "graphApiVersion": "v19.0",
+        "node": "={{$json.comment_id}}",
+        "options": {}
+      },
+      "id": "b4108e61-5a7b-4e36-9ec4-d74cc7e5ac59",
+      "name": "Delete Comment (Facebook Graph API)",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [
+        3168,
+        3648
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Meta Verify (GET)": {
+      "main": [
+        [
+          {
+            "node": "IF - Verify Token Match?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Verify Token Match?": {
+      "main": [
+        [
+          {
+            "node": "Respond - Challenge OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Forbidden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Reply Text?": {
+      "main": [
+        [
+          {
+            "node": "Reply to Comment (Facebook Graph API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Action (Empty Reply)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Meta Events (POST)1": {
+      "main": [
+        [
+          {
+            "node": "Respond - Event Received (Immediate 200)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Verify Webhook Signature1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Webhook Signature1": {
+      "main": [
+        [
+          {
+            "node": "Parse Comment Payload1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain - Classify Comment1": {
+      "main": [
+        [
+          {
+            "node": "Extract Classification1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Classification1": {
+      "main": [
+        [
+          {
+            "node": "Delete or Reply?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete or Reply?1": {
+      "main": [
+        [
+          {
+            "node": "Delete Comment (Facebook Graph API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete Comment (Facebook Graph API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF - Has Reply Text?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain - Classify Comment1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Comment Payload1": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain - Classify Comment1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Comment (Facebook Graph API)": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "78a50c58-cdac-4ee9-b907-8b3bab067709",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d6efadc6ca71827df93ff6ee4ba91f58cc8edf662ba728ff13d989094416c32a"
+  },
+  "nodeGroups": [],
+  "id": "llTr7PeiN14WosKT",
+  "tags": []
+}
